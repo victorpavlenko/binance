@@ -1,24 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import React, { useEffect } from 'react';
 
 import './App.css';
+import {useDispatch, useSelector} from "react-redux";
+import { getSnapshotAction, setCurrencyAction } from "./actions/snapshot";
+import { initializeSocket, checkSocketAccessibility, updateSocket } from "./actions/socket";
 
-
-const ENDPOINT = 'https://api.binance.com/api/';
-const SOCKET = 'wss://stream.binance.com:9443/ws';
-const OPTIONS = [{
-  name: 'BTCUSDT',
-  value: 'btcusdt',
-}, {
-  name: 'ETCUSDT',
-  value: 'etcusdt',
-}, {
-  name: 'XRPUSDT',
-  value: 'xrpusdt',
-}, {
-  name: 'BTSUSDT',
-  value: 'btsusdt',
-}]
 
 function Table({ data, color, type }) {
   return <div>
@@ -33,75 +19,30 @@ function Table({ data, color, type }) {
 
 function App() {
 
-  let [data, setData] = useState([]);
-  let [snapshot, setSnapshot] = useState({ bids: [], asks: [], lastUpdateId: null });
-  let [socket, setSocket] = useState({});
-  let [limit, setLimit] = useState(10);
-  let [update, setUpdate] = useState(false);
-  let [[prevCurrency, currency], setCurrency] = useState([null, 'btsusdt']);
-
+  let dispatch = useDispatch()
+  let state = useSelector(({ socket, snapshot }) => ({ ...socket, ...snapshot }));
+  let { options, data, connected, currency, prevCurrency, snapshot } = state;
 
   useEffect(() => {
-    setUpdate(false)
-    socket = new WebSocket(SOCKET);
-    setSocket(socket);
-
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        method: "SUBSCRIBE",
-        params: [`${currency}@depth`],
-        id: 1
-      }));
-    };
-
-  }, [update]);
-
-
-  socket.onmessage = (event) => {
-    if(JSON.parse(event.data).result !== null) {
-      setData([JSON.parse(event.data)])
-    }
-  };
-
-  const checkSocketAccessibility = () => {
-    if(!socket || socket.readyState === 3) {
-        setUpdate(true)
-    }
-  }
-
+    dispatch(initializeSocket())
+  }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => checkSocketAccessibility, 10000);
+    const interval = setInterval(() => dispatch(checkSocketAccessibility()), 10000);
     return () => clearInterval(interval);
   }, []);
 
-
   useEffect(() => {
-    let symbol = OPTIONS.find(({ value }) => value === currency).name;
-    let params = { symbol, limit }
-
-    axios
-        .get(`${ENDPOINT}/v3/depth`, { params })
-        .then(({ data }) => setSnapshot(data))
+    if(prevCurrency) {
+      dispatch(updateSocket())
+    }
+    dispatch(getSnapshotAction())
   }, [prevCurrency]);
 
 
-  useEffect(() => {
-    if(prevCurrency) {
-      socket.send(JSON.stringify({
-        method: "UNSUBSCRIBE",
-        params: [`${prevCurrency}@depth`],
-        id: 1
-      }));
-
-      socket.send(JSON.stringify({
-        method: "SUBSCRIBE",
-        params: [`${currency}@depth`],
-        id: 2
-      }));
-    }
-  }, [prevCurrency])
-
+  if(!connected) {
+      return null
+  }
 
   let initial = { asks: [], bids: [] };
   let updated = data
@@ -117,8 +58,8 @@ function App() {
     <div className="App">
 
       <aside className={'App-aside'}>
-        <select onChange={({ target }) => setCurrency([currency, target.value])} value={currency}>
-          {OPTIONS.map(({ name, value }) => <option key={value} value={value}>{name}</option>)}
+        <select onChange={({ target }) => dispatch(setCurrencyAction(target.value))} value={currency}>
+          {options.map(({ name, value }) => <option key={value} value={value}>{name}</option>)}
         </select>
       </aside>
 
